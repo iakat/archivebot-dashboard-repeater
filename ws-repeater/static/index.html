@@ -1,0 +1,489 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="referrer" content="no-referrer">
+<!-- x-dns-prefetch-control=off is essential for not making a DNS request for every domain that scrolls by in the log windows -->
+<meta http-equiv="x-dns-prefetch-control" content="off">
+<base target="_blank">
+<link rel="alternate" type="application/rss+xml" title="RSS Feed" href="/feed/archivebot.rss">
+<link rel="alternate" type="application/atom+xml" title="Atom Feed" href="/feed/archivebot.atom">
+<link rel="icon" type="image/png" href="/assets/favicon.png">
+<title>ArchiveBot dashboard</title>
+</head>
+<body>
+<style>
+/**
+ * Workaround for https://bugs.chromium.org/p/chromium/issues/detail?id=1343169
+ * 'Bad colors for inputs, buttons, textareas and selects when using a high-contrast Windows theme'
+ */
+input, select, button, datalist, option, textarea {
+	color: #000;
+}
+
+html {
+	/* Always show scrollbar to prevent jumpiness when filtering */
+	overflow-y: scroll;
+}
+
+html, body {
+	color: #000;
+	font-family: sans-serif;
+	/* Keep digits in fonts like San Francisco aligned */
+	font-variant-numeric: tabular-nums;
+	font-size: 13px;
+	/**
+	 * Opt out of Chrome's Scroll Anchoring, which causes this page to
+	 * incorrectly scroll up as new lines appear in log windows.
+	 * https://bugs.chromium.org/p/chromium/issues/detail?id=650017
+	 * https://github.com/WICG/interventions/blob/0063fe5d3d0e086d4f963c8bd612d12b57db0784/scroll-anchoring/explainer.md#exclusion--opt-out-api
+	 */
+	overflow-anchor: none;
+}
+
+html, body, .job-ident {
+	background-color: #d4c7b8;
+}
+
+#filter-box {
+	background-color: #eee;
+	border: 1px solid #999;
+	padding: 1px 3px 1px 3px;
+	font-size: 18px;
+	border-radius: 3px;
+}
+
+.button {
+	font-size: 18px;
+}
+
+.padded-page {
+	padding: 20px 27px 20px 27px;
+}
+
+@media all and (min-width: 1440px) {
+	.padded-page {
+		padding: 20px 54px 47px 54px;
+	}
+}
+
+.header {
+	font-family: sans-serif;
+	font-size: 18px;
+	margin: 0 0 20px 0;
+	display: flex;
+	align-items: flex-start;
+	justify-content: space-between;
+	flex-flow: row nowrap;
+}
+
+#header-right {
+	white-space: nowrap;
+}
+
+#meta-info {
+	color: rgb(0 0 0 / 60%);
+	display: inline-block;
+	padding: 0 8px 0 0;
+	font-size: 13px;
+}
+
+#read-the-help {
+	padding-top: 0;
+	color: rgb(0 0 0 / 60%);
+}
+
+.job-header {
+	display: flex;
+	align-items: flex-end;
+	justify-content: space-between;
+	flex-flow: row nowrap;
+	cursor: default;
+}
+
+.stats-elements {
+	contain: strict;
+	content-visibility: auto;
+}
+
+.stats-elements:hover {
+	cursor: pointer;
+	background-color: rgb(255 255 255 / 40%);
+}
+
+.job-info {
+	white-space: nowrap;
+	overflow: hidden;
+}
+
+.job-info-done {
+	color: #767676;
+}
+
+.job-info-aborted {
+	color: #9B00D7 !important;
+}
+
+.job-info-fatal {
+	color: #DD0000 !important;
+}
+
+.inline-stat {
+	/* Needed for 'Align!' feature */
+	display: inline-block;
+	/* Needed to avoid extra vertical padding */
+	vertical-align: bottom;
+	/* Needed to avoid collapsing of leading space */
+	white-space: pre;
+}
+
+.job-url {
+	font-family: sans-serif;
+	text-decoration: none;
+	color: inherit;
+}
+
+.job-url-aligned {
+	width: 260px;
+	overflow: hidden;
+	text-overflow: ellipsis;
+}
+
+.job-note-aligned {
+	display: none;
+}
+
+.job-nick-aligned {
+	width: 60px;
+	overflow: hidden;
+	text-overflow: hidden;
+}
+
+.job-mb-aligned {
+	width: 78px;
+	overflow: hidden;
+	text-overflow: hidden;
+	text-align: right;
+}
+
+.job-responses-aligned {
+	width: 92px;
+	overflow: hidden;
+	text-overflow: hidden;
+	text-align: right;
+}
+
+.job-responses-per-second-aligned {
+	width: 27px;
+	overflow: hidden;
+	text-overflow: hidden;
+	text-align: right;
+}
+
+.job-in-queue-aligned {
+	width: 92px;
+	overflow: hidden;
+	text-overflow: hidden;
+	text-align: right;
+}
+
+.job-connections-aligned {
+	width: 14px;
+	overflow: hidden;
+	text-overflow: hidden;
+	text-align: right;
+}
+
+.job-delay-aligned {
+	width: 130px;
+	overflow: hidden;
+	text-overflow: hidden;
+	text-align: right;
+}
+
+.job-ignores {
+	font-weight: bold;
+}
+
+.job-igoff {
+	font-weight: normal !important;
+}
+
+.job-ident {
+	cursor: text;
+	text-align: right;
+	font-family: monospace;
+	color: rgb(0 0 0 / 60%);
+}
+
+.log-window {
+	background-color: #FFF7E1;
+	overflow-y: scroll;
+	/* This should be a multiple of (13 + 4)px */
+	height: 204px;
+	border: 1px solid #999;
+	margin: 0 0 1em 0;
+	border-radius: 3px;
+	box-shadow: 4px 4px 17px 0px #0000001c;
+	overscroll-behavior: contain;
+	contain: strict;
+	content-visibility: auto;
+}
+
+.log-window-hidden {
+	display: none;
+	content-visibility: hidden;
+}
+
+.log-window-stopped {
+	box-shadow: 4px 4px 17px 0px #00000052;
+}
+
+.log-window-expanded {
+	/* This should be 2 times the .log-window height */
+	height: 408px;
+}
+
+.line-normal {
+	display: block;
+	white-space: pre;
+	width: 100%;
+	padding: 0 0 0 5px;
+	box-sizing: border-box;
+}
+
+.line-error {
+	display: block;
+	white-space: pre;
+	width: 100%;
+	background-color: #FFB9B9;
+	padding: 0 0 0 5px;
+	box-sizing: border-box;
+}
+
+.line-warning {
+	display: block;
+	white-space: pre;
+	width: 100%;
+	background-color: #F7DB7D;
+	padding: 0 0 0 5px;
+	box-sizing: border-box;
+}
+
+.line-redirect {
+	display: block;
+	white-space: pre;
+	width: 100%;
+	background-color: #E7CEEA;
+	padding: 0 0 0 5px;
+	box-sizing: border-box;
+}
+
+.line-ignore {
+	white-space: pre;
+	width: 100%;
+	color: #999;
+	padding: 0 0 0 5px;
+	box-sizing: border-box;
+}
+
+.line-stdout {
+	white-space: pre;
+	width: 100%;
+	background-color: #DCD8CB;
+	padding: 0 0 0 5px;
+	box-sizing: border-box;
+}
+
+a {
+	color: #000;
+	text-decoration: none;
+}
+
+a:hover {
+	text-decoration: underline;
+}
+
+a.ignore {
+	color: #999 !important;
+}
+
+.underlined-a {
+	text-decoration: underline;
+}
+
+.bold {
+	font-weight: bold;
+}
+
+#help {
+	background-color: #FFF7E1;
+	font-family: sans-serif;
+	border-radius: 5px;
+	padding: 0.01em 1em 0.01em 1em;
+	margin-bottom: 1em;
+}
+
+#help > p, #help > ul > li {
+	padding: 0;
+	line-height: 1.5;
+}
+
+#help > p > a {
+	text-decoration: underline;
+}
+
+kbd {
+	padding: 1px 2px;
+	border: 1px solid #999;
+	border-radius: 3px;
+}
+
+.undisplayed {
+	display: none;
+}
+
+#context-menu {
+	padding: 2px 0 2px 0;
+	background-color: white;
+	border: 1px solid #BABABA;
+	box-shadow: 2px 2px 3px rgb(0 0 0 / 45%);
+	position: fixed;
+	left: 0;
+	top: 0;
+	display: none;
+	cursor: default;
+	z-index: 1;
+}
+
+.context-menu-entry {
+	display: block;
+	white-space: nowrap;
+	overflow: hidden;
+	max-width: 960px;
+	height: 26px;
+	line-height: 26px;
+	padding-left: 26px;
+	padding-right: 26px;
+	font-family: system-ui, sans-serif;
+	font-size: 12px;
+	cursor: default;
+	-webkit-touch-callout: none;
+	-webkit-user-select: none;
+	-khtml-user-select: none;
+	-moz-user-select: none;
+	-ms-user-select: none;
+	user-select: none;
+}
+
+.context-menu-entry:hover {
+	text-decoration: none !important /* Don't underline 'Open link in new tab' */;
+	background-color: #4281F4;
+	color: #fff;
+}
+
+#clipboard-scratchpad {
+	height: 1px;
+	width: 1px;
+	padding: 0;
+	border: 0;
+	position: absolute;
+	top: 0;
+}
+</style>
+<div id="context-menu"></div>
+<div class="padded-page">
+	<div class="header">
+		<div>
+			<a href="https://wiki.archiveteam.org/index.php?title=ArchiveBot" class="underlined-a">ArchiveBot</a>
+			tracking <span id="num-crawls">0</span> crawls.
+			See also <a href="pipelines" class="underlined-a">pipeline</a> or <a href="logs/recent" class="underlined-a">job</a> reports.
+			Show: <input id="filter-box" type="text" size="21">
+			<input onclick="ds.setFilter('');" type="button" value="  All  " class="button">
+			<input onclick="ds.setFilter('^$');" type="button" value="None" class="button">
+		</div>
+		<div id="header-right">
+			<div id="meta-info"><span class="adbox">😊</span></div>
+			<input type="button" onclick="ds.toggleAlign()" class="button" value="Align!">
+			<input type="button" onclick="ds.toggleHelp()" class="button" value="Help!">
+		</div>
+	</div>
+
+	<div id="critical-info">
+		<noscript>
+			Need JavaScript (ES2020+) and WebSocket -&gt; TCP:4568
+		</noscript>
+		<div id="help" class="undisplayed">
+			<p>
+				This page shows all of the crawls that <a href="https://wiki.archiveteam.org/index.php?title=ArchiveBot">ArchiveBot</a> is currently running.
+			</p>
+			<p>
+				To show or hide a job, click anywhere on its stats line.
+
+				The color coding for the job stats line is:
+					in progress,
+					<span class="job-info-done">finished normally</span>,
+					<span class="job-info-aborted">finished with abort</span>,
+					<span class="job-info-fatal">finished with fatal exception</span>.
+			</p>
+			<p>
+				Mouse over the job start date or the response count for additional information.
+			</p>
+			<p>
+				To pause scrolling, move your mouse inside a log window.
+			</p>
+			<p>
+				To clear all finished jobs, reload the page.
+			</p>
+			<p>
+				Keyboard shortcuts:
+			</p>
+			<ul>
+				<li><kbd>j</kbd> - show next job window
+				<li><kbd>k</kbd> - show previous job window
+				<li><kbd>a</kbd> - show all job windows
+				<li><kbd>n</kbd> - hide all job windows
+				<li><kbd>f</kbd> - move focus to filter box
+				<li><kbd>v</kbd> - open the job URL of the first-shown job window
+				<li><kbd>?</kbd> - show/hide help text
+			</ul>
+			<p>
+				Browser tips:
+			</p>
+			<ul>
+				<li>If your ad blocker is enabled for this domain, you will see slower performance, and some URLs will not be displayed.</li>
+				<li>Performance may be impacted by other browser extensions that watch the DOM. Sometimes the offending extension can be found using the profiler in the DevTools 'Performance' tab.</li>
+				<li>A custom context menu is shown when right-clicking URLs in the log windows below. It can be disabled by adding <kbd><span class="url-q-or-amp">?</span>contextMenu=0</kbd> to the dashboard URL. Firefox users: if you see both the normal and custom context menu, make sure <code>dom.event.contextmenu.enabled</code> is set to <code>true</code> in <code>about:config</code>.</li>
+				<li>To change the font used on this page, customize the sans-serif font in your browser's font settings.</li>
+			</ul>
+			<p>
+				URL parameters:
+			</p>
+			<ul>
+				<li>To specify an initial filter, add <kbd><span class="url-q-or-amp">?</span>initialFilter=TEXT</kbd> to the dashboard URL. The default is <kbd>^$</kbd>.</li>
+				<li>To retain more lines in the log windows, add <kbd><span class="url-q-or-amp">?</span>historyLines=1000</kbd> to the dashboard URL. The default is <code>500</code>, or <code>250</code> on mobile.</li>
+				<li>To update the dashboard more frequently, add <kbd><span class="url-q-or-amp">?</span>batchTimeWhenVisible=33</kbd> to the dashboard URL. The default is <code>125</code> (8 Hz).</li>
+				<li>To skip loading of recent (buffered) log data for jobs, add <kbd><span class="url-q-or-amp">?</span>loadRecent=0</kbd> to the dashboard URL. Inactive jobs will not appear.</li>
+			</ul>
+			<p>
+				To use ArchiveBot, drop by <a href="https://webirc.hackint.org/#irc://irc.hackint.org/archivebot">#archivebot</a> on hackint. <a href="https://archivebot.readthedocs.io/en/latest/">Issue commands</a> by typing them into the channel. You will need channel operator (@) or voice (+) status to issue archiving jobs; just ask for help or leave a message with the website you want to archive.
+			</p>
+			<p>
+				These <a href="https://github.com/ArchiveTeam/ArchiveBot/tree/master/db/ignore_patterns">ignore sets</a> are available for crawls. The <a href="https://github.com/ArchiveTeam/ArchiveBot/blob/master/db/ignore_patterns/global.json">global</a> ignore set automatically applies to all crawls.
+			</p>
+			<p>
+				On GitHub at <a href="https://github.com/ArchiveTeam/ArchiveBot">ArchiveTeam/ArchiveBot</a>.
+
+				You can <a href="/beta">try the alternate dashboard (beta) here</a>.
+			</p>
+		</div>
+	</div>
+	<p id="read-the-help" style="display: none">
+		Please click the 'Help!' button (or <kbd>?</kbd> key) and <strong>disable your ad blocker on this site for the dashboard to function properly</strong>. We do not have any ads.
+	</p>
+	<div id="traffic"></div>
+	<div id="logs"></div>
+</div>
+<script src="assets/dashboard.js" async></script>
+</body>
+</html>

@@ -1,0 +1,8 @@
+services:
+  ws-repeater:
+    build: ws-repeater
+    ports:
+      - "80:4568"
+      - "4568:4568"
+    volumes:
+      - ./ws-repeater:/app:ro
