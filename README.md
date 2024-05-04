@@ -1,6 +1,6 @@
 # archivebot-dashboard-repeater
 
-this is a simple repeater / proxy for the [archivebot-dashboard](http://archivebot.com)
+this is a simple repeater / proxy for the [archivebot.com dashboard](http://archivebot.com)
 
 it only connects to the archivebot.com websocket when at least one client is connected to it.
 
