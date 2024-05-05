@@ -55,6 +55,7 @@ class WebsocketUpstream:
                         # are we in powersave?
                         if self.powersave:
                             await ws.close()
+                            break
                         self.message_count += 1
                         message = await ws.recv()
                         await self.on_message(message)
@@ -135,7 +136,6 @@ async def websocket_endpoint(websocket: WebSocket):
 
 # also serve static files:
 app.mount("/assets", StaticFiles(directory="static/assets"), name="assets")
-
 
 @app.get("/")
 async def index():
