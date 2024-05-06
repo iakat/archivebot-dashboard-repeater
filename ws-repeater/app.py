@@ -9,6 +9,7 @@
 
 import asyncio
 import time
+from collections import deque
 from contextlib import asynccontextmanager
 
 import aiohttp
@@ -16,6 +17,12 @@ import websockets
 from fastapi import FastAPI, WebSocket
 from fastapi.responses import FileResponse, Response
 from fastapi.staticfiles import StaticFiles
+
+
+class Receiver:
+    def __init__(self, websocket: WebSocket):
+        self.websocket = websocket
+        self.our_max_msg = time.time()
 
 
 class WebsocketUpstream:
@@ -26,6 +33,7 @@ class WebsocketUpstream:
         self.rps = 0
         self.max_rps = 300
         self.message_count = 0
+        self.queue = deque(maxlen=10_000)
 
     @property
     def powersave(self):
@@ -50,50 +58,34 @@ class WebsocketUpstream:
                     if self.powersave:
                         break
                     message = await ws.recv()
-                    await self.on_message(message)
+                    self.queue.append((time.time(), message))
                     self.message_count += 1
-                    # ^ we use asyncio.Queue here,
-                    # so we hope to keep ordering of messages.
         except Exception as e:
             print(e)
 
-    async def on_message(self, message: websockets.Data):
-        # we put things in the queue,
-
-        async def task(socket: WebSocket, queue: asyncio.Queue):
-            try:
-                await queue.put(message)
-            except Exception as e:
-                print(e)
-                await self.cleanup(socket, queue)
-
-        tasks = [task(socket, queue) for socket, queue in self._receivers]
-        await asyncio.gather(*tasks)
-
-    async def broadcast(self, websocket: WebSocket, queue: asyncio.Queue):
-        try:
-            message = await queue.get()
-            await websocket.send_text(message)
-        except Exception as e:
-            print("exited!")
-            await self.cleanup(websocket, queue)
-
-    async def cleanup(self, websocket: WebSocket, queue: asyncio.Queue):
-        self._receivers.remove((websocket, queue))
-
     async def print_stats(self):
         print(f"receivers={len(self._receivers)} rps={self.rps:.2f}", end=" ")
-        print(f"max_rps={self.max_rps:.2f} powersave={self.powersave}")
-        for i, (ws, q) in enumerate(self._receivers):
-            print(
-                f"receiver={i} host={ws.client.host} port={ws.client.port} qsize={q.qsize()}"
-            )
+        print(f"max_rps={self.max_rps:.2f} powersave={self.powersave}", end=" ")
+        print(f"queue={len(self.queue)} time={time.time():.2f}")
+        for i, receiver in enumerate(self._receivers):
+            host, port = receiver.websocket.client.host, receiver.websocket.client.port
+            print(f"receiver {i}: {host}:{port} our_max_msg={receiver.our_max_msg:.2f}")
 
-    async def dispatcher(self, function: callable, interval=1.0, *args, **kwargs):
+    async def dispatcher(self, function: callable, interval: float = 1.0):
         while not self.stopped:
-            await function(*args, **kwargs)
+            await function()
             if interval:
                 await asyncio.sleep(interval)
+
+    async def broadcast(self, receiver: Receiver):
+        messages = [msg for msg in self.queue if msg[0] > receiver.our_max_msg]
+        try:
+            for message in messages:
+                await receiver.websocket.send_text(message[1])
+        except:
+            print("broadcast failed")
+            return
+        receiver.our_max_msg = messages[-1][0] if messages else receiver.our_max_msg
 
 
 @asynccontextmanager
@@ -118,27 +110,15 @@ app = FastAPI(lifespan=lifespan)
 async def websocket_endpoint(websocket: WebSocket):
     print("connected")
     await websocket.accept()
-    print("creating queue")
-    our_queue = asyncio.Queue(maxsize=app._ws.max_rps * 5)
-    # ^ we store up to 5 seconds of messages per client
-    print("appending receiver")
-    app._ws._receivers.append((websocket, our_queue))
-    # dispatch a task to send messages to the websocket from the queue
-    asyncio.create_task(
-        app._ws.dispatcher(app._ws.broadcast, 0.0, websocket, our_queue)
-    )
-    print("waiting for websocket to close")
-
+    receiver = Receiver(websocket)
+    app._ws._receivers.append(receiver)
     while not app._ws.stopped:
-        await asyncio.sleep(1)
-        if our_queue.full():
-            print("queue full, closing")
-            # buh-bye
+        await asyncio.sleep(0.1)
+        if websocket.client_state == 2:
+            app._ws._receivers.remove(receiver)
             break
-        # if we are not in receivers, close
-        if (websocket, our_queue) not in app._ws._receivers:
-            print("not in receivers, closing")
-            break
+        await app._ws.broadcast(receiver)
+    print("disconnected")
 
 
 # also serve static files:
