@@ -24,7 +24,7 @@ class WebsocketUpstream:
         self._receivers = []
         self.stopped = False
         self.rps = 0
-        self.max_rps = 1000
+        self.max_rps = 300
         self.message_count = 0
 
     @property
@@ -34,16 +34,14 @@ class WebsocketUpstream:
 
     async def calculate_rps(self):
         while not self.stopped:
-            start_time = time.time()
+            start_time, start_msgs = time.time(), self.message_count
             await asyncio.sleep(1)
-            elapsed_time = time.time() - start_time
-            self.rps = int(self.message_count / elapsed_time)
+            self.rps = (self.message_count - start_msgs) / (time.time() - start_time)
             self.max_rps = max(self.rps, self.max_rps)
-            self.message_count = 0  # reset the counter
+            self.message_count -= start_msgs  # reset
 
     async def upstream_websocket(self):
         if self.powersave:
-            await asyncio.sleep(1)
             return
         try:
             print("connecting to", self.url)
@@ -58,7 +56,6 @@ class WebsocketUpstream:
                     # so we hope to keep ordering of messages.
         except Exception as e:
             print(e)
-            await asyncio.sleep(1)
 
     async def on_message(self, message: websockets.Data):
         # we put things in the queue,
@@ -78,30 +75,25 @@ class WebsocketUpstream:
             message = await queue.get()
             await websocket.send_text(message)
         except Exception as e:
-            print(e)
             print("exited!")
             await self.cleanup(websocket, queue)
 
     async def cleanup(self, websocket: WebSocket, queue: asyncio.Queue):
-        try:
-            self._receivers.remove((websocket, queue))
-        except:
-            # fuzzy match remove
-            self._receivers = [(ws, q) for ws, q in self._receivers if ws != websocket]
+        self._receivers.remove((websocket, queue))
 
     async def print_stats(self):
-        print(
-            f"receivers={len(self._receivers)}, upstream rps={self.rps}, powersave={self.powersave}"
-        )
+        print(f"receivers={len(self._receivers)} rps={self.rps:.2f}", end=" ")
+        print(f"max_rps={self.max_rps:.2f} powersave={self.powersave}")
         for i, (ws, q) in enumerate(self._receivers):
-            print(i, ws, q.qsize())
+            print(
+                f"receiver={i} host={ws.client.host} port={ws.client.port} qsize={q.qsize()}"
+            )
 
     async def dispatcher(self, function: callable, interval=1.0, *args, **kwargs):
         while not self.stopped:
-            start = time.time()
             await function(*args, **kwargs)
-            if interval and (sleepytime := interval - (time.time() - start)) > 0:
-                await asyncio.sleep(sleepytime)
+            if interval:
+                await asyncio.sleep(interval)
 
 
 @asynccontextmanager
@@ -132,7 +124,9 @@ async def websocket_endpoint(websocket: WebSocket):
     print("appending receiver")
     app._ws._receivers.append((websocket, our_queue))
     # dispatch a task to send messages to the websocket from the queue
-    asyncio.create_task(app._ws.dispatcher(app._ws.broadcast, 0.0, websocket, our_queue))
+    asyncio.create_task(
+        app._ws.dispatcher(app._ws.broadcast, 0.0, websocket, our_queue)
+    )
     print("waiting for websocket to close")
 
     while not app._ws.stopped:
