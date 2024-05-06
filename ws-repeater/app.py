@@ -10,7 +10,8 @@
 import asyncio
 import time
 from collections import deque
-from contextlib import asynccontextmanager
+from contextlib import asynccontextmanager, suppress
+from traceback import print_exc
 
 import aiohttp
 import websockets
@@ -77,13 +78,19 @@ class WebsocketUpstream:
             if interval:
                 await asyncio.sleep(interval)
 
+    async def cleanup(self, receiver: Receiver):
+        with suppress(Exception):
+            await receiver.websocket.close()
+        with suppress(Exception):
+            self._receivers.remove(receiver)
+
     async def broadcast(self, receiver: Receiver):
         messages = [msg for msg in self.queue if msg[0] > receiver.our_max_msg]
         try:
             for message in messages:
                 await receiver.websocket.send_text(message[1])
         except:
-            print("broadcast failed")
+            self.cleanup(receiver)
             return
         receiver.our_max_msg = messages[-1][0] if messages else receiver.our_max_msg
 
@@ -109,16 +116,20 @@ app = FastAPI(lifespan=lifespan)
 @app.websocket("/stream")
 async def websocket_endpoint(websocket: WebSocket):
     print("connected")
-    await websocket.accept()
-    receiver = Receiver(websocket)
-    app._ws._receivers.append(receiver)
-    while not app._ws.stopped:
-        await asyncio.sleep(0.1)
-        if websocket.client_state == 2:
-            app._ws._receivers.remove(receiver)
-            break
-        await app._ws.broadcast(receiver)
-    print("disconnected")
+    try:
+        await websocket.accept()
+        receiver = Receiver(websocket)
+        app._ws._receivers.append(receiver)
+        while not app._ws.stopped:
+            await asyncio.sleep(0.1)
+            # if we are no longer alive, throw an exception
+            if websocket.client_state == 3:
+                raise Exception("disconnected")
+            await app._ws.broadcast(receiver)
+        print("disconnected")
+    except:
+        print_exc()
+        await app._ws.cleanup(receiver)
 
 
 # also serve static files:
