@@ -1,4 +1,5 @@
-fastapi
-websockets
+fastapi[all]
 uvicorn[standard]
+gunicorn
+websockets
 aiohttp

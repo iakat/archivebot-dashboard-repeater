@@ -8,10 +8,19 @@ mine runs at <http://85.215.151.231/>.
 
 ## Usage
 
+
+```
+cd ws-repeater
+python3 -m venv venv
+source venv/bin/activate
+pip install -r requirements.txt
+gunicorn app:app -b 0.0.0.0:80 -b 0.0.0.0:4568 --worker-class uvicorn.workers.UvicornWorker
+```
+
+or
+
 ```bash
 
 docker-compose up -d
 
 ```
-
-it should also work if you install [its dependencies](ws-repeater/requirements.txt) and run it as [such](ws-repeater/Dockerfile#L8) but then you have to take care to forward :80 to :4568 yourself as it will only listen on :4568.
