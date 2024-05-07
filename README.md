@@ -8,13 +8,12 @@ mine runs at <http://85.215.151.231/>.
 
 ## Usage
 
-
-```
+```bash
 cd ws-repeater
 python3 -m venv venv
 source venv/bin/activate
 pip install -r requirements.txt
-gunicorn app:app -b 0.0.0.0:80 -b 0.0.0.0:4568 --worker-class uvicorn.workers.UvicornWorker
+gunicorn app:app -b [::]:80 -b [::]:4568 --worker-class uvicorn.workers.UvicornWorker --max-requests 50 --reload
 ```
 
 or
