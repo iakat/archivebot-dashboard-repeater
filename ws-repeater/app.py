@@ -34,7 +34,7 @@ class WebsocketUpstream:
         self.rps = 0
         self.max_rps = 300
         self.message_count = 0
-        self.queue = deque(maxlen=10_000)
+        self.queue = deque(maxlen=3_000)
 
     @property
     def powersave(self):
@@ -53,7 +53,7 @@ class WebsocketUpstream:
         if self.powersave:
             return
         try:
-            print("connecting to", self.url)
+            print("connecting to upstream", self.url)
             async with websockets.connect(self.url) as ws:
                 while not self.stopped:
                     if self.powersave:
@@ -69,10 +69,21 @@ class WebsocketUpstream:
         print(f"receivers={len(self._receivers)} rps={self.rps:.2f}", end=" ")
         print(f"max_rps={self.max_rps:.2f} powersave={self.powersave}", end=" ")
         print(f"queue={len(self.queue)} time={time.time():.2f}")
+        stale = []
         for i, receiver in enumerate(self._receivers):
             host, port = receiver.websocket.client.host, receiver.websocket.client.port
             behind = self.queue[-1][0] - receiver.our_max_msg if self.queue else 0
-            print(f"receiver {i:3d} {host:15s} {port:5d} behind {behind:6.2f}")
+            print(f"receiver {i:3d} {host:15s} {port:5d} behind {behind:6.2f}", end=" ")
+            if behind > 60:
+                print("stale! closing")
+                stale.append(self.cleanup(receiver))
+            else:
+                print()
+        if stale:
+            print(f"cleaning up {len(stale)} stale receivers")
+            await asyncio.gather(*stale)
+
+
 
     async def dispatcher(self, function: callable, interval: float = 1.0):
         while not self.stopped:
@@ -123,7 +134,6 @@ async def lifespan(app: FastAPI):
 
 
 app = FastAPI(lifespan=lifespan)
-
 
 @app.websocket("/stream")
 async def websocket_endpoint(websocket: WebSocket):
