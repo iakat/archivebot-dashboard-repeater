@@ -11,15 +11,17 @@ import asyncio
 import time
 from collections import deque
 from contextlib import asynccontextmanager, suppress
+from os import getenv
 from traceback import print_exc
 
 import aiohttp
 import websockets
+import zmq.asyncio
 from fastapi import FastAPI, WebSocket
 from fastapi.responses import FileResponse, Response
 from fastapi.staticfiles import StaticFiles
 
-
+UPSTREAM = getenv("UPSTREAM", "ws://archivebot.com:4568/stream")
 class Receiver:
     def __init__(self, websocket: WebSocket):
         self.websocket = websocket
@@ -29,12 +31,13 @@ class Receiver:
 class WebsocketUpstream:
     def __init__(self, url="ws://archivebot.com:4568/stream"):
         self.url = url
+        # url can also be zmq://.
         self._receivers = []
         self.stopped = False
         self.rps = 0
         self.max_rps = 300
         self.message_count = 0
-        self.queue = deque(maxlen=3_000)
+        self.queue = deque(maxlen=10_000)
 
     @property
     def powersave(self):
@@ -50,6 +53,19 @@ class WebsocketUpstream:
             self.message_count -= start_msgs  # reset
 
     async def upstream_websocket(self):
+        if self.url.startswith("tcp://"):
+            context = zmq.asyncio.Context()
+            socket = context.socket(zmq.SUB)
+            socket.setsockopt_string(zmq.SUBSCRIBE, "")
+            socket.setsockopt(zmq.LINGER, 1)
+            socket.connect(self.url)
+            while not self.stopped:
+                try:
+                    message = await socket.recv_string()
+                    self.queue.append((time.time(), message))
+                    self.message_count += 1
+                except Exception as e:
+                    print(e)
         if self.powersave:
             return
         try:
@@ -73,7 +89,7 @@ class WebsocketUpstream:
         for i, receiver in enumerate(self._receivers):
             host, port = receiver.websocket.client.host, receiver.websocket.client.port
             behind = self.queue[-1][0] - receiver.our_max_msg if self.queue else 0
-            print(f"receiver {i:3d} {host:15s} {port:5d} behind {behind:6.2f}", end=" ")
+            print(f"receiver {i:3d} {host:39s} {port:5d} behind {behind:6.2f}", end=" ")
             if behind > 60:
                 print("stale! closing")
                 stale.append(self.cleanup(receiver))
@@ -121,7 +137,7 @@ class WebsocketUpstream:
 async def lifespan(app: FastAPI):
     # before startup
     print("starting up")
-    app._ws = WebsocketUpstream()
+    app._ws = WebsocketUpstream(UPSTREAM)
     # dispatch a task for recv_loop
     asyncio.create_task(app._ws.dispatcher(app._ws.upstream_websocket))
     asyncio.create_task(app._ws.dispatcher(app._ws.calculate_rps))

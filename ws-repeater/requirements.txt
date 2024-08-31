@@ -98,6 +98,8 @@ pyyaml==6.0.1
     # via
     #   fastapi
     #   uvicorn
+pyzmq==26.2.0
+    # via -r requirements.in
 rich==13.7.1
     # via typer
 shellingham==1.5.4
