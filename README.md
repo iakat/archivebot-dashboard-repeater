@@ -6,6 +6,12 @@ it only connects to the archivebot.com websocket when at least one client is con
 
 mine runs at <http://85.215.151.231/>.
 
+it also supports connecting to zeromq via setting the UPSTREAM environment variable
+
+acting as a drop in replacement for [the websocket component of archivebot](https://github.com/ArchiveTeam/ArchiveBot/blob/ad9703c489168bb88cd53b3f4ea3b6dadfe8820f/INSTALL.backend#L155-L160)
+
+if UPSTREAM is not set, it will connect to the archivebot.com:4568/stream websocket.
+
 ## Usage
 
 ```bash
