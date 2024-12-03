@@ -4,7 +4,7 @@ this is a simple repeater / proxy for the [archivebot.com dashboard](http://arch
 
 it only connects to the archivebot.com websocket when at least one client is connected to it.
 
-mine runs at <http://85.215.151.231/>.
+mine runs at <http://archivebot.archivingyoursh.it/>.
 
 it also supports connecting to zeromq via setting the UPSTREAM environment variable
 
