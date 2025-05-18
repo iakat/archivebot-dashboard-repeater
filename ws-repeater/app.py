@@ -136,8 +136,8 @@ class WebsocketUpstream:
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     # before startup
-    print("starting up")
     app._ws = WebsocketUpstream(UPSTREAM)
+    print(f"starting up, connecting to {UPSTREAM}")
     # dispatch a task for recv_loop
     asyncio.create_task(app._ws.dispatcher(app._ws.upstream_websocket))
     asyncio.create_task(app._ws.dispatcher(app._ws.calculate_rps))
