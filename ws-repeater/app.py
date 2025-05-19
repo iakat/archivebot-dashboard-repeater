@@ -11,8 +11,11 @@ import asyncio
 import time
 from collections import deque
 from contextlib import asynccontextmanager, suppress
+from sys import stdout
 from os import getenv
 from traceback import print_exc
+import logging
+from queue import Queue
 
 import aiohttp
 import websockets
@@ -22,6 +25,42 @@ from fastapi.responses import FileResponse, Response
 from fastapi.staticfiles import StaticFiles
 
 UPSTREAM = getenv("UPSTREAM", "ws://archivebot.com:4568/stream")
+
+# prepare for terminal output with multi-line status display
+if logging.root.level > logging.DEBUG and stdout.isatty():
+    # record some terminal properties
+    from curses import tigetstr, setupterm
+    setupterm()
+    erase_line = tigetstr('el') or bytes()
+    erase_line_go_next = erase_line + b'\n'
+    up_one_line = tigetstr('cuu1') or tigetstr('up') or bytes()
+
+    # logging will overwrite a multi-line terminal status display
+    # so override the logging handler with one that saves to a queue,
+    # the status display will then synchronise display of the log queue.
+
+    # first setup a formatter for the default logger
+    logging.basicConfig()
+    # these loggers now have a default formatter set
+    logger_names = ('', 'gunicorn.access', 'gunicorn.error')
+    log_queue = Queue()
+    for name in logger_names:
+        # scrounge the formatter for use by the queue handler
+        logger = logging.getLogger(name)
+        if logger.handlers:
+            formatter = logger.handlers[0].formatter
+        else:
+            formatter = logging.Formatter()
+        # setup logging to the queue for terminal sync purposes
+        handler = logging.handlers.QueueHandler(log_queue)
+        handler.setFormatter(formatter)
+        # replace the default handlers with the queue
+        logger.handlers.clear()
+        logger.addHandler(handler)
+else:
+    log_queue = None
+    erase_line = erase_line_go_next = up_one_line = bytes()
+
 class Receiver:
     def __init__(self, websocket: WebSocket):
         self.websocket = websocket
@@ -38,6 +77,7 @@ class WebsocketUpstream:
         self.max_rps = 300
         self.message_count = 0
         self.queue = deque(maxlen=10_000)
+        self.erase_lines = 0
 
     @property
     def powersave(self):
@@ -69,7 +109,11 @@ class WebsocketUpstream:
         if self.powersave:
             return
         try:
-            print("connecting to upstream", self.url)
+            msg = ("connecting to upstream", self.url)
+            if log_queue:
+                log_queue.put_nowait(msg)
+            else:
+                print(*msg)
             async with websockets.connect(self.url) as ws:
                 while not self.stopped:
                     if self.powersave:
@@ -82,9 +126,28 @@ class WebsocketUpstream:
             print(e)
 
     async def print_stats(self):
+        if log_queue:
+            # Erase status lines from previous status
+            stdout.buffer.write(up_one_line*self.erase_lines)
+            stdout.buffer.write(erase_line_go_next*self.erase_lines)
+            stdout.buffer.write(up_one_line*self.erase_lines)
+
+            # Print log messages since previous status
+            while not log_queue.empty():
+                item = log_queue.get_nowait()
+                if isinstance(item, logging.LogRecord):
+                    print(item.getMessage())
+                elif isinstance(item, (tuple, list)):
+                    print(*item)
+                else:
+                    print(item)
+
+        # Print new multi-line status display
+        self.erase_lines = 0
         print(f"receivers={len(self._receivers)} rps={self.rps:.2f}", end=" ")
         print(f"max_rps={self.max_rps:.2f} powersave={self.powersave}", end=" ")
         print(f"queue={len(self.queue)} time={time.time():.2f}")
+        self.erase_lines += 1
         stale = []
         for i, receiver in enumerate(self._receivers):
             host, port = receiver.websocket.client.host, receiver.websocket.client.port
@@ -95,8 +158,10 @@ class WebsocketUpstream:
                 stale.append(self.cleanup(receiver))
             else:
                 print()
+            self.erase_lines += 1
         if stale:
             print(f"cleaning up {len(stale)} stale receivers")
+            self.erase_lines += 1
             await asyncio.gather(*stale)
 
 
